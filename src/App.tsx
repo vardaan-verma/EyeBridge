@@ -1,3 +1,4 @@
+
 import { useEffect, useRef, useState } from "react";
 import Webcam from "react-webcam";
 import { createFaceLandmarker } from "./services/faceLandmarker";
@@ -13,6 +14,16 @@ function App() {
   const [latestIris, setLatestIris] = useState({
     x: 0,
     y: 0,
+  });
+
+  const [debugData, setDebugData] = useState({
+    irisX: 0,
+    irisY: 0,
+    normalizedEyeX: 0,
+    normalizedEyeY: 0,
+    noseX: 0,
+    noseY: 0,
+    eyeDistance: 0,
   });
 
   const calibrationPoints = [
@@ -75,11 +86,8 @@ function App() {
             const landmarks =
               results.faceLandmarks[0];
 
-            const leftIris =
-              landmarks[468];
-
-            const rightIris =
-              landmarks[473];
+            const leftIris = landmarks[468];
+            const rightIris = landmarks[473];
 
             const irisX =
               (leftIris.x + rightIris.x) / 2;
@@ -87,35 +95,76 @@ function App() {
             const irisY =
               (leftIris.y + rightIris.y) / 2;
 
+            const nose = landmarks[1];
+
+            const leftEyeCorner =
+              landmarks[33];
+
+            const rightEyeCorner =
+              landmarks[263];
+
+            const eyeDistance = Math.abs(
+              rightEyeCorner.x -
+                leftEyeCorner.x
+            );
+
+            const normalizedEyeX =
+              (irisX -
+                leftEyeCorner.x) /
+              (rightEyeCorner.x -
+                leftEyeCorner.x);
+
+            const normalizedEyeY =
+              irisY;
+
+            setDebugData({
+              irisX,
+              irisY,
+              normalizedEyeX,
+              normalizedEyeY,
+              noseX: nose.x,
+              noseY: nose.y,
+              eyeDistance,
+            });
+
             setLatestIris({
               x: irisX,
               y: irisY,
             });
 
-            const sensitivity = 3;
+            // V2 Cursor Logic
+
+            const eyeSensitivityX = 10;
+            const eyeSensitivityY = 10;
+
+            const eyeOffsetX =
+              (0.5 - normalizedEyeX) *
+              window.innerWidth *
+              eyeSensitivityX;
+
+            const eyeOffsetY =
+              (normalizedEyeY - 0.5) *
+              window.innerHeight *
+              eyeSensitivityY;
 
             const targetX =
               window.innerWidth / 2 +
-              (0.5 - irisX) *
-                window.innerWidth *
-                sensitivity;
+              eyeOffsetX;
 
             const targetY =
               window.innerHeight / 2 +
-              (irisY - 0.5) *
-                window.innerHeight *
-                sensitivity;
+              eyeOffsetY;
 
             setSmoothX(
               (prev) =>
-                prev * 0.85 +
-                targetX * 0.15
+                prev * 0.9 +
+                targetX * 0.1
             );
 
             setSmoothY(
               (prev) =>
-                prev * 0.85 +
-                targetY * 0.15
+                prev * 0.9 +
+                targetY * 0.1
             );
           }
         }
@@ -146,13 +195,13 @@ function App() {
           paddingTop: "20px",
         }}
       >
-        <h1>EyeBridge</h1>
+        <h1>EyeBridge V2</h1>
 
         <h2>
-          Face Detected:{" "}
+          Face Detected:
           {faceDetected
-            ? "✅ YES"
-            : "❌ NO"}
+            ? " ✅ YES"
+            : " ❌ NO"}
         </h2>
 
         <Webcam
@@ -221,6 +270,37 @@ function App() {
             "0 0 10px red",
         }}
       />
+
+      <div
+        style={{
+          position: "fixed",
+          top: 20,
+          right: 20,
+          background: "black",
+          color: "white",
+          padding: "12px",
+          borderRadius: "8px",
+          zIndex: 10002,
+          fontFamily: "monospace",
+        }}
+      >
+        <div>irisX: {debugData.irisX.toFixed(3)}</div>
+        <div>irisY: {debugData.irisY.toFixed(3)}</div>
+        <div>
+          normalizedEyeX:
+          {debugData.normalizedEyeX.toFixed(3)}
+        </div>
+        <div>
+          normalizedEyeY:
+          {debugData.normalizedEyeY.toFixed(3)}
+        </div>
+        <div>noseX: {debugData.noseX.toFixed(3)}</div>
+        <div>noseY: {debugData.noseY.toFixed(3)}</div>
+        <div>
+          eyeDistance:
+          {debugData.eyeDistance.toFixed(3)}
+        </div>
+      </div>
     </>
   );
 }
