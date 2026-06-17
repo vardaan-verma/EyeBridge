@@ -1,64 +1,85 @@
-
 import { useEffect, useRef, useState } from "react";
 import Webcam from "react-webcam";
 import { createFaceLandmarker } from "./services/faceLandmarker";
 
+type Direction =
+  | "LEFT"
+  | "RIGHT"
+  | "UP"
+  | "DOWN"
+  | "CENTER";
+
+const MENU_ITEMS = [
+  "Home",
+  "Products",
+  "Pricing",
+  "Contact",
+  "Login",
+  "Settings",
+];
+
 function App() {
   const webcamRef = useRef<Webcam>(null);
 
-  const [faceDetected, setFaceDetected] = useState(false);
+  const [faceDetected, setFaceDetected] =
+    useState(false);
 
-  const [smoothX, setSmoothX] = useState(window.innerWidth / 2);
-  const [smoothY, setSmoothY] = useState(window.innerHeight / 2);
+  const [isCalibrated, setIsCalibrated] =
+    useState(false);
 
-  const [latestIris, setLatestIris] = useState({
-    x: 0,
-    y: 0,
-  });
+  const [neutralX, setNeutralX] =
+    useState(0);
 
-  const [debugData, setDebugData] = useState({
-    irisX: 0,
-    irisY: 0,
-    normalizedEyeX: 0,
-    normalizedEyeY: 0,
-    noseX: 0,
-    noseY: 0,
-    eyeDistance: 0,
-  });
+  const [neutralY, setNeutralY] =
+    useState(0);
 
-  const calibrationPoints = [
-    { x: 100, y: 100 },
-    { x: window.innerWidth - 100, y: 100 },
-    { x: window.innerWidth / 2, y: window.innerHeight / 2 },
-    { x: 100, y: window.innerHeight - 100 },
-    { x: window.innerWidth - 100, y: window.innerHeight - 100 },
-  ];
+  const [direction, setDirection] =
+    useState<Direction>("CENTER");
 
-  const [currentPoint, setCurrentPoint] = useState(0);
-  const [samples, setSamples] = useState<any[]>([]);
-  const [calibrated, setCalibrated] = useState(false);
+  const [selectedIndex, setSelectedIndex] =
+    useState(0);
 
-  const captureCalibration = () => {
-    const point = calibrationPoints[currentPoint];
+  const [noseX, setNoseX] = useState(0);
+  const [noseY, setNoseY] = useState(0);
 
-    const sample = {
-      irisX: latestIris.x,
-      irisY: latestIris.y,
-      screenX: point.x,
-      screenY: point.y,
-    };
+  const gestureStartRef =
+    useRef<number | null>(null);
 
-    const updated = [...samples, sample];
+  const repeatStartRef =
+    useRef<number | null>(null);
 
-    setSamples(updated);
+  const lastRepeatRef =
+    useRef<number>(0);
 
-    if (currentPoint < calibrationPoints.length - 1) {
-      setCurrentPoint(currentPoint + 1);
-    } else {
-      setCalibrated(true);
+  const activeDirectionRef =
+    useRef<Direction>("CENTER");
 
-      console.log("Calibration Complete");
-      console.table(updated);
+  const executeCommand = (
+    dir: Direction
+  ) => {
+    if (dir === "LEFT") {
+      setSelectedIndex((prev) =>
+        Math.max(0, prev - 1)
+      );
+    }
+
+    if (dir === "RIGHT") {
+      setSelectedIndex((prev) =>
+        Math.min(
+          MENU_ITEMS.length - 1,
+          prev + 1
+        )
+      );
+    }
+
+    if (dir === "UP") {
+      setSelectedIndex(0);
+    }
+
+    if (dir === "DOWN") {
+      setSelectedIndex(
+        MENU_ITEMS.length - 1
+      );
     }
   };
 
@@ -66,16 +87,30 @@ function App() {
     let animationFrameId: number;
 
     async function init() {
-      const faceLandmarker = await createFaceLandmarker();
+      const faceLandmarker =
+        await createFaceLandmarker();
+
+      let calibrationSamples: number[] =
+        [];
+      let calibrationSamplesY: number[] =
+        [];
+
+      let calibrationStart =
+        performance.now();
 
       const detect = () => {
-        const video = webcamRef.current?.video;
+        const video =
+          webcamRef.current?.video;
 
-        if (video && video.readyState === 4) {
-          const results = faceLandmarker.detectForVideo(
-            video,
-            performance.now()
-          );
+        if (
+          video &&
+          video.readyState === 4
+        ) {
+          const results =
+            faceLandmarker.detectForVideo(
+              video,
+              performance.now()
+            );
 
           const hasFace =
             results.faceLandmarks.length > 0;
@@ -86,91 +121,155 @@ function App() {
             const landmarks =
               results.faceLandmarks[0];
 
-            const leftIris = landmarks[468];
-            const rightIris = landmarks[473];
+            const nose =
+              landmarks[1];
 
-            const irisX =
-              (leftIris.x + rightIris.x) / 2;
+            setNoseX(nose.x);
+            setNoseY(nose.y);
 
-            const irisY =
-              (leftIris.y + rightIris.y) / 2;
+            if (!isCalibrated) {
+              calibrationSamples.push(
+                nose.x
+              );
 
-            const nose = landmarks[1];
+              calibrationSamplesY.push(
+                nose.y
+              );
 
-            const leftEyeCorner =
-              landmarks[33];
+              if (
+                performance.now() -
+                  calibrationStart >
+                2000
+              ) {
+                const avgX =
+                  calibrationSamples.reduce(
+                    (a, b) => a + b,
+                    0
+                  ) /
+                  calibrationSamples.length;
 
-            const rightEyeCorner =
-              landmarks[263];
+                const avgY =
+                  calibrationSamplesY.reduce(
+                    (a, b) => a + b,
+                    0
+                  ) /
+                  calibrationSamplesY.length;
 
-            const eyeDistance = Math.abs(
-              rightEyeCorner.x -
-                leftEyeCorner.x
-            );
+                setNeutralX(avgX);
+                setNeutralY(avgY);
+                setIsCalibrated(true);
+              }
+            } else {
+              const dx =
+                nose.x - neutralX;
 
-            const normalizedEyeX =
-              (irisX -
-                leftEyeCorner.x) /
-              (rightEyeCorner.x -
-                leftEyeCorner.x);
+              const dy =
+                nose.y - neutralY;
 
-            const normalizedEyeY =
-              irisY;
+              let currentDirection: Direction =
+                "CENTER";
 
-            setDebugData({
-              irisX,
-              irisY,
-              normalizedEyeX,
-              normalizedEyeY,
-              noseX: nose.x,
-              noseY: nose.y,
-              eyeDistance,
-            });
+              if (dx > 0.04)
+                currentDirection =
+                  "LEFT";
+              else if (dx < -0.03)
+                currentDirection =
+                  "RIGHT";
+              else if (dy < -0.08)
+                currentDirection =
+                  "UP";
+              else if (dy > 0.08)
+                currentDirection =
+                  "DOWN";
 
-            setLatestIris({
-              x: irisX,
-              y: irisY,
-            });
+              setDirection(
+                currentDirection
+              );
 
-            // V2 Cursor Logic
+              const now =
+                performance.now();
 
-            const eyeSensitivityX = 10;
-            const eyeSensitivityY = 10;
+              if (
+                currentDirection ===
+                "CENTER"
+              ) {
+                gestureStartRef.current =
+                  null;
 
-            const eyeOffsetX =
-              (0.5 - normalizedEyeX) *
-              window.innerWidth *
-              eyeSensitivityX;
+                repeatStartRef.current =
+                  null;
 
-            const eyeOffsetY =
-              (normalizedEyeY - 0.5) *
-              window.innerHeight *
-              eyeSensitivityY;
+                activeDirectionRef.current =
+                  "CENTER";
+              } else {
+                if (
+                  activeDirectionRef.current !==
+                  currentDirection
+                ) {
+                  activeDirectionRef.current =
+                    currentDirection;
 
-            const targetX =
-              window.innerWidth / 2 +
-              eyeOffsetX;
+                  gestureStartRef.current =
+                    now;
 
-            const targetY =
-              window.innerHeight / 2 +
-              eyeOffsetY;
+                  repeatStartRef.current =
+                    null;
+                }
 
-            setSmoothX(
-              (prev) =>
-                prev * 0.9 +
-                targetX * 0.1
-            );
+                const gestureTime =
+                  now -
+                  (gestureStartRef.current ||
+                    now);
 
-            setSmoothY(
-              (prev) =>
-                prev * 0.9 +
-                targetY * 0.1
-            );
+                if (
+                  gestureTime >
+                    200 &&
+                  repeatStartRef.current ===
+                    null
+                ) {
+                  executeCommand(
+                    currentDirection
+                  );
+
+                  repeatStartRef.current =
+                    now;
+                }
+
+                if (
+                  repeatStartRef.current !==
+                  null
+                ) {
+                  const holdTime =
+                    now -
+                    repeatStartRef.current;
+
+                  if (
+                    holdTime >
+                    1000
+                  ) {
+                    if (
+                      now -
+                        lastRepeatRef.current >
+                      200
+                    ) {
+                      executeCommand(
+                        currentDirection
+                      );
+
+                      lastRepeatRef.current =
+                        now;
+                    }
+                  }
+                }
+              }
+            }
           }
         }
 
         animationFrameId =
-          requestAnimationFrame(detect);
+          requestAnimationFrame(
+            detect
+          );
       };
 
       detect();
@@ -183,125 +282,135 @@ function App() {
         animationFrameId
       );
     };
-  }, []);
+  }, [
+    isCalibrated,
+    neutralX,
+    neutralY,
+  ]);
 
   return (
-    <>
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          paddingTop: "20px",
-        }}
-      >
-        <h1>EyeBridge V2</h1>
+    <div
+      style={{
+        minHeight: "100vh",
+        padding: "20px",
+      }}
+    >
+      <h1>EyeBridge V4</h1>
 
+      <h2>
+        Face:
+        {faceDetected
+          ? " ✅"
+          : " ❌"}
+      </h2>
+
+      {!isCalibrated && (
         <h2>
-          Face Detected:
-          {faceDetected
-            ? " ✅ YES"
-            : " ❌ NO"}
+          Look straight at the screen...
+          Calibrating
         </h2>
+      )}
 
-        <Webcam
-          ref={webcamRef}
-          mirrored
-          style={{
-            width: 640,
-            borderRadius: "12px",
-            border: "2px solid #444",
-          }}
-        />
-      </div>
-
-      {!calibrated && (
+      {isCalibrated && (
         <>
+          <h2>
+            Direction: {direction}
+          </h2>
+
           <div
             style={{
-              position: "fixed",
-              width: 40,
-              height: 40,
-              borderRadius: "50%",
-              backgroundColor: "blue",
-              left:
-                calibrationPoints[
-                  currentPoint
-                ].x,
-              top:
-                calibrationPoints[
-                  currentPoint
-                ].y,
-              transform:
-                "translate(-50%, -50%)",
-              zIndex: 10000,
-            }}
-          />
-
-          <button
-            onClick={captureCalibration}
-            style={{
-              position: "fixed",
-              bottom: 20,
-              left: 20,
-              padding: "10px 20px",
-              zIndex: 10001,
+              display: "flex",
+              flexDirection:
+                "column",
+              gap: "12px",
+              marginTop: "30px",
+              width: "300px",
             }}
           >
-            Capture Point
-          </button>
+            {MENU_ITEMS.map(
+              (item, index) => (
+                <div
+                  key={item}
+                  style={{
+                    padding:
+                      "15px",
+                    borderRadius:
+                      "10px",
+                    border:
+                      index ===
+                      selectedIndex
+                        ? "4px solid lime"
+                        : "2px solid #444",
+                    boxShadow:
+                      index ===
+                      selectedIndex
+                        ? "0 0 20px lime"
+                        : "none",
+                    fontSize:
+                      "22px",
+                  }}
+                >
+                  {item}
+                </div>
+              )
+            )}
+          </div>
         </>
       )}
 
       <div
         style={{
           position: "fixed",
-          width: "20px",
-          height: "20px",
-          borderRadius: "50%",
-          backgroundColor: "red",
-          left: smoothX,
-          top: smoothY,
-          transform:
-            "translate(-50%, -50%)",
-          pointerEvents: "none",
-          zIndex: 9999,
-          boxShadow:
-            "0 0 10px red",
-        }}
-      />
-
-      <div
-        style={{
-          position: "fixed",
           top: 20,
           right: 20,
-          background: "black",
+          background:
+            "black",
           color: "white",
           padding: "12px",
-          borderRadius: "8px",
-          zIndex: 10002,
-          fontFamily: "monospace",
+          borderRadius:
+            "8px",
+          fontFamily:
+            "monospace",
         }}
       >
-        <div>irisX: {debugData.irisX.toFixed(3)}</div>
-        <div>irisY: {debugData.irisY.toFixed(3)}</div>
         <div>
-          normalizedEyeX:
-          {debugData.normalizedEyeX.toFixed(3)}
+          noseX:
+          {noseX.toFixed(3)}
         </div>
+
         <div>
-          normalizedEyeY:
-          {debugData.normalizedEyeY.toFixed(3)}
+          noseY:
+          {noseY.toFixed(3)}
         </div>
-        <div>noseX: {debugData.noseX.toFixed(3)}</div>
-        <div>noseY: {debugData.noseY.toFixed(3)}</div>
+
         <div>
-          eyeDistance:
-          {debugData.eyeDistance.toFixed(3)}
+          neutralX:
+          {neutralX.toFixed(3)}
+        </div>
+
+        <div>
+          neutralY:
+          {neutralY.toFixed(3)}
+        </div>
+
+        <div>
+          direction:
+          {direction}
         </div>
       </div>
-    </>
+
+      <Webcam
+        ref={webcamRef}
+        mirrored
+        style={{
+          position: "fixed",
+          bottom: 20,
+          right: 20,
+          width: 320,
+          borderRadius: "12px",
+        }}
+      />
+    </div>
   );
 }
 
